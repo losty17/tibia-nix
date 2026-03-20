@@ -1,5 +1,5 @@
 {
-  description = "A portable FHS environment for Tibia on NixOS";
+  description = "Portable FHS environment and manager for Tibia";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -9,23 +9,22 @@
     let
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
+      
+      # Shared install path
+      installDir = "$HOME/.local/share/tibia-nix";
 
-      # We define the environment here
-      tibia-pkg = pkgs.buildFHSEnv {
+      # 1. The main game environment
+      tibia-env = pkgs.buildFHSEnv {
         name = "tibia";
         targetPkgs = pkgs: with pkgs; [
-          # SSL and Connection
-          openssl cacert libidn2 rtmpdump libpsl curl
-          # Graphics & Hardware
+          curl gnutar gzip openssl cacert libidn2 rtmpdump libpsl
           libdrm libxshmfence libXxf86vm libGL libglvnd vulkan-loader mesa
-          # Core Essentials
-          zlib nss nspr brotli expat fontconfig freetype glib dbus libxcb libxkbcommon systemd libxcrypt-legacy
-          # XCB / Qt Fixes
-          xcbutilcursor xcbutilwm xcbutilimage xcbutilkeysyms xcbutilrenderutil
-          # X11 libraries
-          libX11 libXrender libXcomposite libXcursor libXdamage libXext libXfixes libXi libXrandr libXScrnSaver libXtst
-          # UI and Audio
-          gtk3 atk at-spi2-atk at-spi2-core cairo gdk-pixbuf pango alsa-lib libpulseaudio
+          zlib nss nspr brotli expat fontconfig freetype glib dbus libxcb
+          libxkbcommon systemd libxcrypt-legacy xcbutilcursor xcbutilwm
+          xcbutilimage xcbutilkeysyms xcbutilrenderutil libX11 libXrender
+          libXcomposite libXcursor libXdamage libXext libXfixes libXi
+          libXrandr libXScrnSaver libXtst gtk3 atk at-spi2-atk at-spi2-core
+          cairo gdk-pixbuf pango alsa-lib libpulseaudio
         ];
 
         profile = ''
@@ -34,24 +33,47 @@
           export CURL_CA_BUNDLE="${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
         '';
 
-        # This script runs INSIDE the FHS environment when launched
         runScript = pkgs.writeShellScript "tibia-launcher" ''
-          if [ -f "./Tibia" ]; then
-            exec ./Tibia "$@"
-          else
-            echo "--------------------------------------------------------"
-            echo "Error: Tibia binary not found in the current directory."
-            echo "Please run this command from inside your Tibia folder."
-            echo "--------------------------------------------------------"
-            exit 1
+          if [ ! -f "${installDir}/Tibia" ]; then
+            echo "--- Tibia not found! Downloading... ---"
+            mkdir -p "${installDir}"
+            cd "${installDir}"
+            curl -L "https://static.tibia.com/download/tibia.tar.gz" | tar -xz --strip-components=1
           fi
+          cd "${installDir}"
+          exec ./Tibia "$@"
         '';
       };
-    in {
-      # This allows running 'nix run'
-      packages.${system}.default = tibia-pkg;
 
-      # This makes it easy to use as a dev shell if needed
-      devShells.${system}.default = tibia-pkg.env;
+      # 2. The cleanup script
+      clean-script = pkgs.writeShellScriptBin "tibia-clean" ''
+        echo "This will delete the Tibia binary and assets in ${installDir}"
+        read -p "Are you sure? (y/N) " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+          rm -rf "${installDir}"
+          echo "Cleanup complete."
+        else
+          echo "Cleanup cancelled."
+        fi
+      '';
+
+    in {
+      # For 'nix build'
+      packages.${system}.default = tibia-env;
+
+      # For 'nix run'
+      apps.${system} = {
+        # Default: nix run .
+        default = {
+          type = "app";
+          program = "${tibia-env}/bin/tibia";
+        };
+        # Cleanup: nix run .#clean
+        clean = {
+          type = "app";
+          program = "${clean-script}/bin/tibia-clean";
+        };
+      };
     };
 }
