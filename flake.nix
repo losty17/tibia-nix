@@ -38,7 +38,7 @@
             echo "--- Tibia not found! Downloading... ---"
             mkdir -p "${installDir}"
             cd "${installDir}"
-            curl -L "https://static.tibia.com/download/tibia.tar.gz" | tar -xz --strip-components=1
+            curl -L "https://static.tibia.com/download/tibia.x64.tar.gz" | tar -xz --strip-components=1
           fi
           cd "${installDir}"
           exec ./Tibia "$@"
